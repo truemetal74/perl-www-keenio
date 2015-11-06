@@ -16,11 +16,13 @@ use 5.006;
 use strict;
 use warnings;
 
+use Carp qw(cluck);
 use Data::Dumper;
 use REST::Client;
 use JSON::XS;
 use URI;
 use Scalar::Util qw(blessed);
+use Readonly;
 
 use Mouse;
 #print Dumper(\%INC);
@@ -40,7 +42,17 @@ has project => ( isa => 'Str', is => 'rw');
 #** @attr protected String $base_url Base REST URL
 #*
 has base_url => ( isa => 'Str', is => 'rw',
-                  default => 'https://api.keen.io/3.0/projects/$project/events/$collection');
+                  default => 'https://api.keen.io/3.0/');
+
+Readonly my $REST_data => {
+    put => {
+        path => 'projects/$project/events/$collection',
+        write => 1
+       },
+    select => {
+        path => 'projects/$project/queries/extraction'
+       }
+};
 
 #** @attr protected CodeRef $ua Reference to the REST UA
 #*
@@ -57,23 +69,16 @@ has ua => ( isa => 'Object', is => 'rw',
 has error_message => ( isa => 'Str', is => 'rw', init_arg => undef, default => '');
 
 sub _url {
-    my ($self, $collection, $write) = @_;
+    my ($self, $path, $url_params, $query_params) = @_;
 
-    my $rest_params = {
-            project => $self->project,
-            collection => $collection
-           };
-
-    my $url = $self->base_url;
-    $url =~ s^\$([\w\d\_]+)^$rest_params->{$1}^eg;
+    $url_params //= {};
+    $url_params->{project} = $self->project unless defined($url_params->{project});
+    $query_params //= {};
+    my $url = $self->base_url . $path;
+    $url =~ s^\$([\w\d\_]+)^$url_params->{$1} // ''^eg;
     my $uri = URI->new($url, 'http');
-    my $query_params = {
-        api_key => $write ? 
-          $self->write_key // $self->api_key :
-            $self->api_key
-       };
     $uri->query_form($query_params);
-
+    #print "URL=".$uri->as_string;
     return $uri->as_string;
 }
 
@@ -87,27 +92,44 @@ sub _process_response {
         $self->error_message("Unknown response $response from the REST client instead of object");
         return undef;
     } 
-#    print "Got response:".Dumper($response->responseCode())."/".
-#          Dumper($response->responseContent())."\n";
+    print "Got response:".Dumper($response->responseCode())."/".
+          Dumper($response->responseContent())."\n";
     my $code = $response->responseCode();
-    if ($code ne '201' && $code ne '201') {
+    my $parsed_content = eval { decode_json($response->responseContent()) };
+    if ($@) {
+        cluck("Cannot parse response content ".
+                $response->responseContent().", error msg: $@. Is this JSON?");
+        $parsed_content = {};
+    }
+ #   print "parsed ".Dumper($parsed_content);
+    if ($code ne '200' && $code ne '201') {
         $self->error_message("Received error code $code from the server instead of expected 200/201");
         return undef;
     }
 
     $self->error_message(q{});
-    return $response->responseContent();
+    return $parsed_content;
 }
 
 sub _transaction {
-    my ($self, $method, $write, $collection, $record) = @_;
+    my ($self, $query_params, $data) = @_;
 
+    my $caller_sub = (split('::', (caller(1))[3]))[-1];
+#    print "caller=". join(", ", caller(1))." sub=$caller_sub\n";    
+    my $rest_data = $REST_data->{$caller_sub};
+
+    $data //= {};
+    my $key = $rest_data->{write} ? 
+      ($self->write_key // $self->api_key) : $self->api_key;
+    my $method_path = $rest_data->{path};
+    confess("No URL path defined for method $caller_sub") unless $method_path;
     my $response = eval {
-        $self->ua->$method(
-            $self->_url($collection, $write),
-            encode_json($record),
+        $self->ua->POST(
+            $self->_url($method_path, $query_params),
+            encode_json($data),
             {
-                'Content-Type' => 'application/json'
+                'Content-Type' => 'application/json',
+                Authorization => $key
                }
            );
     };
@@ -167,16 +189,24 @@ Insert an object into collection. $data is a hashref
 
 sub put {
     my ($self, $collection, $record) = @_;
-    return $self->_transaction('POST', 1, $collection, $record);
+    return $self->_transaction( {
+        collection => $collection
+       },
+                                $record);
 }
 
 =head2 get($collection_name, $data)
 
 =cut
 
-sub get {
-    my ($self, $collection, $record) = @_;
-    return $self->_transaction('GET', 0, $collection, $record);
+sub select {
+    my ($self, $collection, $timeframe, $params) = @_;
+
+    $params //= {};
+    $params->{event_collection} = $collection;
+    $params->{timeframe} = $timeframe // 'this_7_days';
+    return $self->_transaction({
+       }, $params);
 }
 
 =head1 AUTHOR

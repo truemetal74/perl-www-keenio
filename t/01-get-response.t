@@ -10,7 +10,7 @@ plan tests => 4;
 BEGIN {
     use_ok( 'WWW::KeenIO' ) || print "Bail out!\n";
 }
-
+use Data::Dumper;
 my $class = 'WWW::KeenIO';
 my $obj = $class->new({
     project => '54d51b7f96773d3a427b5a76',
@@ -21,10 +21,15 @@ isa_ok($obj, $class, 'Create object');
 
 my $r;
 ok( $r = $obj->put('tests',
-                   { hostname =>  hostname(), time => q{}.localtime() } ),
+                   { hostname =>  hostname(), time => q{}.localtime(),
+                     data => rand() } ),
     'Insert object');
+my $saved_project = $obj->project;
 $obj->project('aaa'); # fake
 ok( ! ($r = $obj->put('tests',
                    { } )),
     'Handle insertion error');
+$obj->project($saved_project);
+$r = $obj->select('tests', 'this_7_days');
+print Dumper($r);
 
