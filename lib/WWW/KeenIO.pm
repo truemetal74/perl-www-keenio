@@ -52,6 +52,10 @@ Readonly my $REST_data => {
         path  => 'projects/$project/events/$collection',
         write => 1
     },
+    batch_put => {
+        path  => 'projects/$project/events',
+        write => 1
+    },
     select => {
         path => 'projects/$project/queries/extraction'
     }
@@ -112,9 +116,9 @@ sub _process_response {
         );
         return undef;
     }
-    #   print "Got response:"
-    #     . Dumper( $response->responseCode() ) . "/"
-    #     . Dumper( $response->responseContent() ) . "\n";
+    print "Got response:"
+      . Dumper( $response->responseCode() ) . "/"
+        . Dumper( $response->responseContent() ) . "\n" if $ENV{DEBUG};
     my $code = $response->responseCode();
     my $parsed_content = eval { decode_json( $response->responseContent() ) };
     if ($@) {
@@ -123,7 +127,7 @@ sub _process_response {
               . ", error msg: $@. Is this JSON?" );
         $parsed_content = {};
     }
-    #   print "parsed ".Dumper($parsed_content);
+    print "parsed ".Dumper($parsed_content) if $ENV{DEBUG};
     if ( $code ne '200' && $code ne '201' ) {
         my $err = "Received error code $code from the server instead of "
           . 'expected 200/201';
@@ -234,13 +238,13 @@ Creates a new object, acceptable parameters are:
 
 =head1 METHODS
 
-=head2 put($collection_name, $data)
+=head2 put( $collection_name, $data )
 
-Inserts an event ($data is a hashref) into the collection. Returns a 
+Inserts an event (C<$data> is a hashref) into the collection. Returns a 
 reference to a hash, which contains the response
-received from the server (typically there is a key 'created' with
-true value). Returns undef on failure, application then may call
-error_message() method to get the detailed info about the error.
+received from the server (typically there is a key C<created> with
+C<true> value). Returns C<undef> on failure, application then may call
+C<error_message()> method to get the detailed info about the error.
 
     my $res = $keen->put('in_out_log', $data);
     unless ($res) {
@@ -259,16 +263,61 @@ sub put {
     );
 }
 
-=head2 get($collection_name, $interval, $filters)
+=head2 batch_put( $data )
 
-Retrieves a list of events from the collection. $collection_name is 
-self-explanatory. $interval is a string, which describes the time period
+Inserts multiple events into Keen. C<$data> is a hashref, where every key
+represents a collection name, where data should be inserted. Value of
+the key is a reference to an array, which contains references to
+individual event data (hashes).
+
+Returns C<undef> on total failure (e.g. unable to access the servers). Otherwise
+returns a reference to a hash; each key represents a collection name and the
+value is a reference to an array of statuses for individual events.
+
+    my $res = $keen->batch_put( {
+        payments => [
+            {
+                name        => 'John Doe',
+                customer_id => 123,
+                amount      => 35.00
+            },
+            {
+                name        => 'Peter Smith',
+                customer_id => 125,
+                amount      => '10.00'
+            }
+        ],
+        purchases => [
+            {
+                name        => 'John Doe',
+                customer_id => 123,
+                product_id  => 567,
+                quantity    => 1,
+                date        => '2015-11-01 15:06:34'
+            }
+        ]
+    });
+    unless ($res) {
+        warn 'Something went wrong '.$keen->error_message();
+    }
+
+=cut
+
+sub batch_put {
+    my ( $self, $data ) = @_;
+    return $self->_transaction( { }, $data );
+}
+
+=head2 get($collection_name, $interval [, $filters ] )
+
+Retrieves a list of events from the collection. C<$collection_name> is 
+self-explanatory. C<$interval> is a string, which describes the time period
 we are interested in (see L<< https://keen.io/docs/api/#timeframe) >>).
-$filters is optional. If provided - should be an arrayref, each element
+C<$filters> is optional. If provided - should be an arrayref, each element
 is an additional condition according to L<< https://keen.io/docs/api/#query-parameters >>.
 
 Returns a reference to an array on hashrefs; each element is a reference
-to an actual events. Upon failure returns undef.
+to an actual events. Upon failure returns C<undef>.
 
     my $data = $keen->select('in_out_log', 'this_7_days',
          [ $keen->filter('name', $KEEN_OP_EQ, 'John Doe') ]);

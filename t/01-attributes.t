@@ -11,7 +11,7 @@ BEGIN {
 
 my $class = 'WWW::KeenIO';
 my $obj = new_ok( $class => [{
-    project_id => $ENV{KEEN_PROJ_ID} // 1,
+    project => $ENV{KEEN_PROJ_ID} // 1,
     api_key => $ENV{KEEN_API_KEY} // 'abc',
     write_key => $ENV{KEEN_API_WRITE_KEY} // 'xyz'
    }]);
