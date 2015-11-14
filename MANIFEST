@@ -1,0 +1,10 @@
+MANIFEST
+Changes
+README
+LICENSE
+Makefile.PL
+lib/WWW/KeenIO.pm
+t/00-load.t
+t/01-attributes.t
+t/02-put.t
+t/03-select.t

@@ -1,8 +1,12 @@
 package WWW::KeenIO;
 
+use 5.006;
+use strict;
+use warnings;
+
 =head1 NAME
 
-WWW::KeenIO - Perl API to Keen.IO analytics
+WWW::KeenIO - Perl API for Keen.IO L<< http://keen.io >> event storage and analytics
 
 =head1 VERSION
 
@@ -12,98 +16,129 @@ Version 0.01
 
 our $VERSION = '0.01';
 
-use 5.006;
-use strict;
-use warnings;
-
 use Carp qw(cluck);
 use Data::Dumper;
 use REST::Client;
 use JSON::XS;
 use URI;
-use Scalar::Util qw(blessed);
+use Scalar::Util qw(blessed reftype);
 use Readonly;
+use Exporter 'import';
 
 use Mouse;
-#print Dumper(\%INC);
 
 #** @attr public api_key $api_key API access key
 #*
-has api_key => ( isa => 'Str', is => 'rw');
+has api_key => ( isa => 'Str', is => 'rw', required => 1 );
 
-#** @attr public CodeRef $read_key API key for writing data (if different from api_key 
+#** @attr public CodeRef $read_key API key for writing data (if different from api_key
 #*
-has write_key => ( isa => 'Maybe[Str]', is => 'rw');
+has write_key => ( isa => 'Maybe[Str]', is => 'rw' );
 
 #** @attr public Int $project_id ID of the project
 #*
-has project => ( isa => 'Str', is => 'rw');
+has project => ( isa => 'Str', is => 'rw', required => 1 );
 
 #** @attr protected String $base_url Base REST URL
 #*
-has base_url => ( isa => 'Str', is => 'rw',
-                  default => 'https://api.keen.io/3.0/');
+has base_url => (
+    isa     => 'Str',
+    is      => 'rw',
+    default => 'https://api.keen.io/3.0/'
+);
 
 Readonly my $REST_data => {
     put => {
-        path => 'projects/$project/events/$collection',
+        path  => 'projects/$project/events/$collection',
         write => 1
-       },
+    },
     select => {
         path => 'projects/$project/queries/extraction'
-       }
+    }
 };
+
+Readonly our $KEEN_OP_EQ       => 'eq';
+Readonly our $KEEN_OP_NE       => 'ne';
+Readonly our $KEEN_OP_EXISTS   => 'exists';
+Readonly our $KEEN_OP_IN       => 'exists';
+Readonly our $KEEN_OP_CONTAINS => 'contains';
+
+my @operators = qw($KEEN_OP_EQ $KEEN_OP_NE $KEEN_OP_EXISTS $KEEN_OP_IN
+  $KEEN_OP_CONTAINS);
+our @EXPORT_OK = (@operators);
+our %EXPORT_TAGS = ( 'operators' => [@operators] );
 
 #** @attr protected CodeRef $ua Reference to the REST UA
 #*
-has ua => ( isa => 'Object', is => 'rw',
-            lazy => 1,
-            init_arg => undef,
-            default => sub {
-                return REST::Client->new();
-            }
-           );
+has ua => (
+    isa      => 'Object',
+    is       => 'rw',
+    lazy     => 1,
+    init_arg => undef,
+    default  => sub {
+        return REST::Client->new();
+    }
+);
 
 #** @attr public String $error_message Error message regarding the last failed operation
 #*
-has error_message => ( isa => 'Str', is => 'rw', init_arg => undef, default => '');
+has error_message =>
+  ( isa => 'Str', is => 'rw', init_arg => undef, default => '' );
 
 sub _url {
-    my ($self, $path, $url_params, $query_params) = @_;
+    my ( $self, $path, $url_params, $query_params ) = @_;
 
     $url_params //= {};
-    $url_params->{project} = $self->project unless defined($url_params->{project});
+    $url_params->{project} = $self->project
+      unless defined( $url_params->{project} );
     $query_params //= {};
     my $url = $self->base_url . $path;
     $url =~ s^\$([\w\d\_]+)^$url_params->{$1} // ''^eg;
-    my $uri = URI->new($url, 'http');
+    my $uri = URI->new( $url, 'http' );
     $uri->query_form($query_params);
     #print "URL=".$uri->as_string;
     return $uri->as_string;
 }
 
 sub _process_response {
-    my ($self, $response) = @_;
+    my ( $self, $response ) = @_;
 
     if ($@) {
         $self->error_message("Error $@");
         return undef;
-    } elsif (!blessed($response)) {
-        $self->error_message("Unknown response $response from the REST client instead of object");
+    } elsif ( !blessed($response) ) {
+        $self->error_message(
+            "Unknown response $response from the REST client instead of object"
+        );
         return undef;
-    } 
-    print "Got response:".Dumper($response->responseCode())."/".
-          Dumper($response->responseContent())."\n";
+    }
+    #   print "Got response:"
+    #     . Dumper( $response->responseCode() ) . "/"
+    #     . Dumper( $response->responseContent() ) . "\n";
     my $code = $response->responseCode();
-    my $parsed_content = eval { decode_json($response->responseContent()) };
+    my $parsed_content = eval { decode_json( $response->responseContent() ) };
     if ($@) {
-        cluck("Cannot parse response content ".
-                $response->responseContent().", error msg: $@. Is this JSON?");
+        cluck(  "Cannot parse response content "
+              . $response->responseContent()
+              . ", error msg: $@. Is this JSON?" );
         $parsed_content = {};
     }
- #   print "parsed ".Dumper($parsed_content);
-    if ($code ne '200' && $code ne '201') {
-        $self->error_message("Received error code $code from the server instead of expected 200/201");
+    #   print "parsed ".Dumper($parsed_content);
+    if ( $code ne '200' && $code ne '201' ) {
+        my $err = "Received error code $code from the server instead of "
+          . 'expected 200/201';
+        if ( reftype($parsed_content) eq 'HASH'
+            && $parsed_content->{message} )
+        {
+            $err .=
+                "\nError message from KeenIO: "
+              . $parsed_content->{message}
+              . ( $parsed_content->{error_code}
+                ? ' (' . $parsed_content->{error_code} . ')'
+                : q{} );
+
+            $self->error_message($err);
+        }
         return undef;
     }
 
@@ -112,46 +147,45 @@ sub _process_response {
 }
 
 sub _transaction {
-    my ($self, $query_params, $data) = @_;
+    my ( $self, $query_params, $data ) = @_;
 
-    my $caller_sub = (split('::', (caller(1))[3]))[-1];
-#    print "caller=". join(", ", caller(1))." sub=$caller_sub\n";    
+    my $caller_sub = ( split( '::', ( caller(1) )[3] ) )[-1];
     my $rest_data = $REST_data->{$caller_sub};
 
     $data //= {};
-    my $key = $rest_data->{write} ? 
-      ($self->write_key // $self->api_key) : $self->api_key;
+    my $key =
+      $rest_data->{write}
+      ? ( $self->write_key // $self->api_key )
+      : $self->api_key;
     my $method_path = $rest_data->{path};
     confess("No URL path defined for method $caller_sub") unless $method_path;
-    my $response = eval {
-        $self->ua->POST(
-            $self->_url($method_path, $query_params),
-            encode_json($data),
-            {
-                'Content-Type' => 'application/json',
-                Authorization => $key
-               }
-           );
+
+    my $url = $self->_url( $method_path, $query_params );
+    my $headers = {
+        'Content-Type' => 'application/json',
+        Authorization  => $key
     };
+    my $response =
+      eval { $self->ua->POST( $url, encode_json($data), $headers ); };
     cluck($@) if $@;
     return $self->_process_response($response);
 }
 
-
-
 =head1 SYNOPSIS
 
-    use WWW::KeenIO;
+    use WWW::KeenIO qw(:operators);
     use Text::CSV_XS;
+    use Data::Dumper;
 
     my $csv = Text::CSV_XS->new;
-    my $k = WWW::KeenIO->new( {
-          project    => '54d51b7f96773d3a427b5a76',
-          read_key   => '...',
-          write_key  => '...'
-    ) or die 'Cannot create KeenIO object';
-    # read name / in|out / date-time data from input, import them as keenIO events
-    # e.g.
+    my $keen = WWW::KeenIO->new( {
+          project    => '123',
+          api_key   => '456',
+          write_key  => '789'
+    }) or die 'Cannot create KeenIO object';
+
+    # process a CSV file with 3 columns: name, in|out, date-time
+    # import them as keenIO events
     while(<>) {
       chomp;
       my $status = $csv->parse($_);
@@ -163,65 +197,151 @@ sub _transaction {
       my $data = {
           keen => {
              timestamp => $fields[2]
-          }
+          },
           name => $fields[0],
           type => $fields[1]
       };
-      my $res = $api->put('in_out_log', $data);
-      unless ($res->responseCode() eq '201') {
+      my $res = $keen->put('in_out_log', $data);
+      unless ($res) {
          warn "Unable to store the data in keenIO";
       }
     }
+ 
+    # now read the data
+    my $data = $keen->select('in_out_log', 'this_7_days',
+        [ $keen->filter('name', $KEEN_OP_EQ, 'John Doe') ] );
+    print Dumper($data);
 
+=head1 CONSTRUCTOR
 
-=head1 EXPORT
+=head2 new( hashref )
 
-A list of functions that can be exported.  You can delete this section
-if you don't export anything, such as for a purely object-oriented module.
+Creates a new object, acceptable parameters are:
 
-=head1 SUBROUTINES/METHODS
+=over 16
+
+=item C<api_key> - (required) the key to be used for read operations
+
+=item C<project> - (required) the ID of KeenIO project
+
+=item C<write_key> - the key to be used for write operations (if different from api_key)
+
+=item C<base_url> - L<< https://api.keen.io/3.0/ >> by default; in case if you are using KeenIO-compatible API on some other server you can specify your own URL here
+
+=back
+
+    my $res = $keen->put('in_out_log', $data);
+
+=head1 METHODS
 
 =head2 put($collection_name, $data)
 
-Insert an object into collection. $data is a hashref
+Inserts an event ($data is a hashref) into the collection. Returns a 
+reference to a hash, which contains the response
+received from the server (typically there is a key 'created' with
+true value). Returns undef on failure, application then may call
+error_message() method to get the detailed info about the error.
+
+    my $res = $keen->put('in_out_log', $data);
+    unless ($res) {
+        warn 'Something went wrong '.$keen->error_message();
+    }
 
 =cut
 
 sub put {
-    my ($self, $collection, $record) = @_;
-    return $self->_transaction( {
-        collection => $collection
-       },
-                                $record);
+    my ( $self, $collection, $record ) = @_;
+    return $self->_transaction(
+        {
+            collection => $collection
+        },
+        $record
+    );
 }
 
-=head2 get($collection_name, $data)
+=head2 get($collection_name, $interval, $filters)
+
+Retrieves a list of events from the collection. $collection_name is 
+self-explanatory. $interval is a string, which describes the time period
+we are interested in (see L<< https://keen.io/docs/api/#timeframe) >>).
+$filters is optional. If provided - should be an arrayref, each element
+is an additional condition according to L<< https://keen.io/docs/api/#query-parameters >>.
+
+Returns a reference to an array on hashrefs; each element is a reference
+to an actual events. Upon failure returns undef.
+
+    my $data = $keen->select('in_out_log', 'this_7_days',
+         [ $keen->filter('name', $KEEN_OP_EQ, 'John Doe') ]);
+    print Dumper($data);
 
 =cut
 
 sub select {
-    my ($self, $collection, $timeframe, $params) = @_;
+    my ( $self, $collection, $timeframe, $filters ) = @_;
 
-    $params //= {};
+    unless ( defined($collection) && defined($timeframe) ) {
+        $self->error_message("Must provide collection name and timeframe");
+        return undef;
+    }
+
+    my $params = {};
+    $params->{filters}          = $filters if $filters;
     $params->{event_collection} = $collection;
-    $params->{timeframe} = $timeframe // 'this_7_days';
-    return $self->_transaction({
-       }, $params);
+    $params->{timeframe}        = $timeframe;
+    my $x = $self->_transaction( {}, $params );
+    unless ( reftype($x) eq 'HASH' && reftype( $x->{result} ) eq 'ARRAY' ) {
+        return undef;
+    }
+    return $x->{result};
 }
+
+=head2 filter($field, $operator, $value)
+
+Creates a filter for retrieving events via select() method.
+
+    use WWW::KeenIO qw(:operators);
+    my $res = $keen->select('tests', 'this_10_years', [
+                  $keen->filter('Author', $KEEN_OP_CONTAINS, 'Andrew'),
+                  $keen->filter('Status', $KEEN_OP_EQ, 'resolved')
+              ] );
+
+Please refer to Keen API documentation regarding all available operators and
+their usage. For convenience constants for most frequently used operators are exported via :operators tag:
+$KEEN_OP_EQ, $KEEN_OP_NE, $KEEN_OP_EXISTS. $KEEN_OP_IN, $KEEN_OP_CONTAINS 
+
+=cut
+
+sub filter {
+    my ( $self, $field, $operator, $value ) = @_;
+    return {
+        property_name  => $field,
+        operator       => $operator,
+        property_value => $value
+    };
+}
+
+=head2 error_message()
+
+Returns the detailed explanation of the last error. Empty string if
+everything went fine.
+
+    my $res = $keen->put('in_out_log', $data);
+    unless ($res) {
+        warn 'Something went wrong '.$keen->error_message();
+    }
+
+=cut
 
 =head1 AUTHOR
 
-Andrew Zhilenko, C<< <andrew at ti.cz> >>
+Andrew Zhilenko, C<< <perl at putinhuylo.org> >>
 (c) Putin Huylo LLC, 2015
 
 =head1 BUGS
 
 Please report any bugs or feature requests to C<bug-www-keenio at rt.cpan.org>, or through
-the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=WWW-KeenIO>.  I will be notified, and then you'll
-automatically be notified of progress on your bug as I make changes.
-
-
-
+the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=WWW-KeenIO>. 
+I will be notified, and then you'll automatically be notified of progress on your bug as I make changes.
 
 =head1 SUPPORT
 
@@ -252,13 +372,9 @@ L<http://search.cpan.org/dist/WWW-KeenIO/>
 
 =back
 
-
-=head1 ACKNOWLEDGEMENTS
-
-
 =head1 LICENSE AND COPYRIGHT
 
-Copyright 2015 Andrew Zhilenko.
+Copyright 2015 Putin Huylo LLC
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of the the Artistic License (2.0). You may obtain a
@@ -301,4 +417,4 @@ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 __PACKAGE__->meta->make_immutable;
 
-1; # End of WWW::KeenIO
+1;    # End of WWW::KeenIO
