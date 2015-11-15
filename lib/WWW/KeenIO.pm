@@ -234,8 +234,6 @@ Creates a new object, acceptable parameters are:
 
 =back
 
-    my $res = $keen->put('in_out_log', $data);
-
 =head1 METHODS
 
 =head2 put( $collection_name, $data )
@@ -356,7 +354,7 @@ Creates a filter for retrieving events via select() method.
 
 Please refer to Keen API documentation regarding all available operators and
 their usage. For convenience constants for most frequently used operators are exported via :operators tag:
-$KEEN_OP_EQ, $KEEN_OP_NE, $KEEN_OP_EXISTS. $KEEN_OP_IN, $KEEN_OP_CONTAINS 
+$KEEN_OP_EQ, $KEEN_OP_NE, $KEEN_OP_EXISTS, $KEEN_OP_IN, $KEEN_OP_CONTAINS 
 
 =cut
 
