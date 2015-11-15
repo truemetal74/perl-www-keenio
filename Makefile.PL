@@ -8,10 +8,10 @@ use 5.008;
 use ExtUtils::MakeMaker;
 WriteMakefile
   (
-      NAME         => 'WWW:;KeenIO',
+      NAME         => 'WWW::KeenIO',
       VERSION_FROM => 'lib/WWW/KeenIO.pm',
       PREREQ_PM    => {
-          'Carp' => 0
+          'Carp' => 0,
           'Data::Dumper' => 0,
           'JSON::XS' => 0,
           'Mouse' => '2.0.0',
@@ -25,4 +25,4 @@ WriteMakefile
         'Test::Mouse' => 0,
         'Sys::Hostname' => 0
       },
-    );
+     );
