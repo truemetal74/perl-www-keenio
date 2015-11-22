@@ -1,6 +1,6 @@
 package WWW::KeenIO;
 
-use 5.006;
+use 5.010;
 use strict;
 use warnings;
 
@@ -10,11 +10,11 @@ WWW::KeenIO - Perl API for Keen.IO L<< http://keen.io >> event storage and analy
 
 =head1 VERSION
 
-Version 0.01
+Version 0.02
 
 =cut
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 use Carp qw(cluck);
 use Data::Dumper;

@@ -3,13 +3,21 @@
 use strict;
 use warnings;
      
-use 5.008;
+use 5.010;
      
-use ExtUtils::MakeMaker;
+use inc::Module::Install;
+name 'WWW::KeenIO';
+all_from 'lib/WWW/KeenIO.pm';
+author 'Andrew Zhilenko';
+license 'perl';
+#readme_from 'lib/WWW/KeenIO.pm';
+
+#use ExtUtils::MakeMaker;
 WriteMakefile
   (
       NAME         => 'WWW::KeenIO',
       VERSION_FROM => 'lib/WWW/KeenIO.pm',
+      MIN_PERL_VERSION => 5.010,
       PREREQ_PM    => {
           'Carp' => 0,
           'Data::Dumper' => 0,
